@@ -112,4 +112,10 @@ void update_kalman(
     double dt
 );
 
+
+/* Track-lifecycle statistics for the real-data pipeline */
+void tracker_reset_counters(void);
+int tracker_tracks_created(void);
+int tracker_tracks_confirmed(void);
+
 #endif

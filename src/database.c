@@ -5,6 +5,15 @@
 
 static sqlite3 *db = NULL;
 
+static const char *database_path = "database/radar_tracking.db";
+
+void database_set_path(const char *path)
+{
+    if (path != NULL && path[0] != '\0') {
+        database_path = path;
+    }
+}
+
 /* ==========================================
    CHECK WHETHER A TABLE EXISTS
    ========================================== */
@@ -131,7 +140,7 @@ int initialize_database(void)
         ");";
 
     rc = sqlite3_open(
-        "database/radar_tracking.db",
+        database_path,
         &db
     );
 
@@ -279,7 +288,7 @@ int initialize_database(void)
     }
 
     printf("\nSQLite database initialized successfully.\n");
-    printf("Database: database/radar_tracking.db\n");
+    printf("Database: %s\n", database_path);
     printf("Latest target table: radar_target_latest\n");
     printf("History table: radar_target_history\n");
 
@@ -405,6 +414,11 @@ int save_targets_batch_to_database(
     for (int i = 0; i < count; i++)
     {
         const Target *target = &targets[i];
+
+        /* Tentative tracks are not stored until they are confirmed. */
+        if (!target->confirmed) {
+            continue;
+        }
 
         /* Save historical observation */
 

@@ -3,53 +3,59 @@ TRACKING EVALUATION REPORT
 Raw detections                      : 345,410
 Labelled non-static detections (GT) : 8,205
 Reference objects (non-static)      : 5
-GT detections placed in a track     : 7,108
-Coverage of GT detections           : 86.63%
-GT detections dropped as noise      : 1,097
+GT detections placed in a track     : 7,102
+Coverage of GT detections           : 86.56%
+GT detections dropped as noise      : 1,103
 
 PER (SENSOR, REFERENCE OBJECT)
  sensor reference  gt_detections  logged  distinct_tracks  main_track_share  id_switches
-      2  f6a76074           2599    2442                6              30.7            5
-      3  f6a76074           2448    2295               14              15.6           14
-      2  fcf2aae8            847     707                3              97.3            3
-      3  fcf2aae8            783     676                2              97.6            1
-      1  f6a76074            380     310                6              41.6            5
+      2  f6a76074           2599    2442                2              99.9            2
+      3  f6a76074           2448    2293                1             100.0            0
+      2  fcf2aae8            847     707                4              81.5           17
+      3  fcf2aae8            783     676                2              99.7            2
+      1  f6a76074            380     310                1             100.0            0
       3  a6776696            380     222                1             100.0            0
-      4  fcf2aae8            320     290                2              98.3            1
-      2  f6a3bd8e            160      57                3              75.4            2
-      4  f6a76074            114      75                3              76.0            2
-      2  a6776696             85      26                4              46.2            3
+      4  fcf2aae8            320     290                2              62.8           13
+      2  f6a3bd8e            160      57                4              66.7            5
+      4  f6a76074            114      71                2              94.4            1
+      2  a6776696             85      26                1             100.0            0
       1  f6a3bd8e             59       2                1             100.0            0
       1  fcf2aae8             18       1                1             100.0            0
       3  f0d0097e             11       5                1             100.0            0
 
 IDENTITY METRICS (per sensor, detection level)
-IDTP (detections on the best-matching track) : 3,212
-IDFN (GT detections not on matched track)    : 4,993
-IDFP (logged detections not on matched track): 3,896
-IDR  (identity recall)                       : 39.15%
-IDP  (identity precision, optimistic)        : 45.19%
-IDF1                                         : 41.95%
+IDTP (detections on the best-matching track) : 6,836
+IDFN (GT detections not on matched track)    : 1,369
+IDFP (logged detections not on matched track): 266
+IDR  (identity recall)                       : 83.32%
+IDP  (identity precision, optimistic)        : 96.25%
+IDF1                                         : 89.32%
 
 CONTINUITY (adjacent logged detections of one object per sensor)
-Transitions        : 7,095
-Identity switches  : 36
-Continuity         : 99.49%
+Transitions        : 7,089
+Identity switches  : 40
+Continuity         : 99.44%
 (Continuity ignores detections dropped as noise, so it is higher than IDR.)
 
+FUSED IDENTITY METRICS (all four sensors together)
+IDTP / IDFN / IDFP        : 6,836 / 1,369 / 266
+IDR / IDP / IDF1          : 83.32% / 96.25% / 89.32%
+Identity switches (frame) : 42
+Tracks per object         : {'a6776696': 1, 'f0d0097e': 1, 'f6a3bd8e': 4, 'f6a76074': 3, 'fcf2aae8': 5}
+
 TRACK PURITY (labelled detections only)
-Tracks containing labelled detections        : 47
-Tracks mixing more than one reference object : 0
-Weighted purity                              : 100.00%
+Tracks containing labelled detections        : 13
+Tracks mixing more than one reference object : 1
+Weighted purity                              : 99.44%
 
 FRAGMENTATION (distinct internal tracks per reference object, all sensors)
            sensors  tracks
 reference                 
-a6776696         2       5
+a6776696         2       2
 f0d0097e         1       1
-f6a3bd8e         2       4
-f6a76074         4      29
-fcf2aae8         4       8
+f6a3bd8e         2       5
+f6a76074         4       6
+fcf2aae8         4       9
 
 NOT COMPUTED
 MOTA / MOTP: RadarScenes has no per-frame object positions, only

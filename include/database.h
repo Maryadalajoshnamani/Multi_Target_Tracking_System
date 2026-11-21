@@ -3,6 +3,9 @@
 
 #include "target.h"
 
+/* Choose the database file (call before initialize_database) */
+void database_set_path(const char *path);
+
 int initialize_database(void);
 
 int save_target_to_database(const Target *target);

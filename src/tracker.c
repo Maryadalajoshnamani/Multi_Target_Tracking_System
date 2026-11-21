@@ -5,8 +5,80 @@
 
 #include "tracker.h"
 
+#include "assignment.h"
+
+#ifndef MEASUREMENT_NOISE
 #define MEASUREMENT_NOISE 4.0
+#endif
+
+/* Legacy diagonal process noise (Q_MODEL 0) */
+#ifndef PROCESS_NOISE
 #define PROCESS_NOISE 0.05
+#endif
+
+/*
+ * Q_MODEL 1: constant-velocity model with random acceleration
+ * (continuous white-noise acceleration). ACCEL_NOISE is the spectral
+ * density in m^2/s^3.
+ */
+#ifndef Q_MODEL
+#define Q_MODEL 1
+#endif
+
+#ifndef ACCEL_NOISE
+#define ACCEL_NOISE 1.0
+#endif
+
+/* Association settings (real-data cluster tracking) */
+#ifndef USE_HUNGARIAN
+#define USE_HUNGARIAN 1          /* 1 = optimal assignment, 0 = greedy */
+#endif
+
+#ifndef USE_MAHALANOBIS
+#define USE_MAHALANOBIS 1        /* 1 = covariance gate, 0 = metric gate */
+#endif
+
+#ifndef GATE_CHI2
+#define GATE_CHI2 9.21           /* 99% gate for 2 degrees of freedom */
+#endif
+
+#ifndef CONFIRM_HITS
+#define CONFIRM_HITS 3           /* detections needed to confirm a track */
+#endif
+
+#ifndef TENTATIVE_MAX_GAP
+#define TENTATIVE_MAX_GAP 0.5    /* seconds before an unconfirmed track dies */
+#endif
+
+#ifndef SENSOR_FUSION
+#define SENSOR_FUSION 1          /* 1 = tracks may be updated by any sensor */
+#endif
+
+#ifndef DOPPLER_INIT
+#define DOPPLER_INIT 0           /* 1 = start velocity from Doppler speed */
+#endif
+
+#define NO_PAIR_COST 1.0e6
+
+static int tracks_created_total = 0;
+static int tracks_confirmed_total = 0;
+
+void tracker_reset_counters(void)
+{
+    tracks_created_total = 0;
+    tracks_confirmed_total = 0;
+}
+
+int tracker_tracks_created(void)
+{
+    return tracks_created_total;
+}
+
+int tracker_tracks_confirmed(void)
+{
+    return tracks_confirmed_total;
+}
+
 #define MIN_DT 0.000001
 #ifndef MAX_TRACK_GAP
 #define MAX_TRACK_GAP 1.5
@@ -113,6 +185,102 @@ void initialize_kalman(Target *target)
 }
 
 /* ==========================================
+   KALMAN PREDICTION AND GATING HELPERS
+   ========================================== */
+
+static void kalman_predict(
+    const Target *target,
+    double dt,
+    double predicted_state[4],
+    double predicted_P[4][4])
+{
+    double F[4][4] = {
+        {1.0, 0.0, dt,  0.0},
+        {0.0, 1.0, 0.0, dt},
+        {0.0, 0.0, 1.0, 0.0},
+        {0.0, 0.0, 0.0, 1.0}
+    };
+
+    double FP[4][4] = {{0}};
+
+    for (int i = 0; i < 4; i++) {
+        predicted_state[i] = 0.0;
+
+        for (int j = 0; j < 4; j++) {
+            predicted_P[i][j] = 0.0;
+            predicted_state[i] += F[i][j] * target->kalman.state[j];
+        }
+    }
+
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            for (int k = 0; k < 4; k++) {
+                FP[i][j] += F[i][k] * target->kalman.covariance[k][j];
+            }
+        }
+    }
+
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            for (int k = 0; k < 4; k++) {
+                predicted_P[i][j] += FP[i][k] * F[j][k];
+            }
+        }
+    }
+
+#if Q_MODEL == 1
+    {
+        double dt2 = dt * dt;
+        double dt3 = dt2 * dt;
+        double q = ACCEL_NOISE;
+
+        predicted_P[0][0] += q * dt3 / 3.0;
+        predicted_P[1][1] += q * dt3 / 3.0;
+        predicted_P[0][2] += q * dt2 / 2.0;
+        predicted_P[2][0] += q * dt2 / 2.0;
+        predicted_P[1][3] += q * dt2 / 2.0;
+        predicted_P[3][1] += q * dt2 / 2.0;
+        predicted_P[2][2] += q * dt;
+        predicted_P[3][3] += q * dt;
+    }
+#else
+    for (int i = 0; i < 4; i++) {
+        predicted_P[i][i] += PROCESS_NOISE * dt;
+    }
+#endif
+}
+
+/* Squared Mahalanobis distance between a measurement and a track. */
+static double kalman_mahalanobis_sq(
+    const Target *target,
+    double measured_x,
+    double measured_y,
+    double dt)
+{
+    double state[4];
+    double P[4][4];
+
+    kalman_predict(target, dt, state, P);
+
+    double nx = measured_x - state[0];
+    double ny = measured_y - state[1];
+
+    double S00 = P[0][0] + MEASUREMENT_NOISE;
+    double S01 = P[0][1];
+    double S10 = P[1][0];
+    double S11 = P[1][1] + MEASUREMENT_NOISE;
+
+    double det = S00 * S11 - S01 * S10;
+
+    if (fabs(det) < 1e-12) {
+        return NO_PAIR_COST;
+    }
+
+    return (nx * (S11 * nx - S01 * ny) +
+            ny * (-S10 * nx + S00 * ny)) / det;
+}
+
+/* ==========================================
    KALMAN FILTER
    State: [x, y, vx, vy]
    Measurement: [x, y]
@@ -140,46 +308,10 @@ void update_kalman(
         return;
     }
 
-    double F[4][4] = {
-        {1.0, 0.0, dt,  0.0},
-        {0.0, 1.0, 0.0, dt},
-        {0.0, 0.0, 1.0, 0.0},
-        {0.0, 0.0, 0.0, 1.0}
-    };
+    double predicted_P[4][4];
+    double predicted_state[4];
 
-    double P[4][4] = {{0}};
-    double FP[4][4] = {{0}};
-    double predicted_P[4][4] = {{0}};
-    double predicted_state[4] = {0};
-
-    for (int i = 0; i < 4; i++) {
-        for (int j = 0; j < 4; j++) {
-            P[i][j] = target->kalman.covariance[i][j];
-
-            predicted_state[i] +=
-                F[i][j] * target->kalman.state[j];
-        }
-    }
-
-    for (int i = 0; i < 4; i++) {
-        for (int j = 0; j < 4; j++) {
-            for (int k = 0; k < 4; k++) {
-                FP[i][j] += F[i][k] * P[k][j];
-            }
-        }
-    }
-
-    for (int i = 0; i < 4; i++) {
-        for (int j = 0; j < 4; j++) {
-            for (int k = 0; k < 4; k++) {
-                predicted_P[i][j] += FP[i][k] * F[j][k];
-            }
-        }
-    }
-
-    for (int i = 0; i < 4; i++) {
-        predicted_P[i][i] += PROCESS_NOISE * dt;
-    }
+    kalman_predict(target, dt, predicted_state, predicted_P);
 
     double innovation_x =
         measured_x - predicted_state[0];
@@ -285,6 +417,7 @@ int update_target(
         targets[index].y = y;
         targets[index].timestamp = timestamp;
         targets[index].active = 1;
+        targets[index].confirmed = 1;
         targets[index].detection_count = 1;
 
         initialize_kalman(&targets[index]);
@@ -303,6 +436,7 @@ int update_target(
         target->y = y;
         target->timestamp = timestamp;
         target->active = 1;
+        target->confirmed = 1;
         target->detection_count = 1;
 
         initialize_kalman(target);
@@ -555,7 +689,7 @@ static void write_targets_json(
     int active_total = 0;
 
     for (int i = 0; i < count; i++) {
-        if (targets[i].active) {
+        if (targets[i].active && targets[i].confirmed) {
             active_total++;
         }
     }
@@ -567,7 +701,7 @@ static void write_targets_json(
     int written = 0;
 
     for (int i = 0; i < count; i++) {
-        if (!targets[i].active) {
+        if (!targets[i].active || !targets[i].confirmed) {
             continue;
         }
 
@@ -683,7 +817,10 @@ static void expire_stale_tracks(
 
         double age = timestamp - targets[i].timestamp;
 
-        if (age > MAX_TRACK_GAP) {
+        double allowed_gap =
+            targets[i].confirmed ? MAX_TRACK_GAP : TENTATIVE_MAX_GAP;
+
+        if (age > allowed_gap) {
             targets[i].active = 0;
             targets[i].missed_frames++;
         }
@@ -1117,162 +1254,290 @@ int update_radar_clusters(
         cluster_track_ids[i] = -1;
     }
 
+    double frame_timestamp = clusters[0].timestamp;
+
+    expire_stale_tracks(targets, *count, frame_timestamp);
+
+    /* ---- STEP 1: list the tracks that can take part in this frame ---- */
+
     int track_capacity = *count;
 
-    size_t max_pairs =
-        (size_t)track_capacity *
-        (size_t)cluster_count;
-
-    AssociationCandidate *candidates = NULL;
-
-    int *track_used = calloc(
-        (size_t)(track_capacity > 0 ? track_capacity : 1),
-        sizeof(int)
+    int *eligible = malloc(
+        (size_t)(track_capacity > 0 ? track_capacity : 1) * sizeof(int)
     );
 
-    int *cluster_used = calloc(
-        (size_t)cluster_count,
-        sizeof(int)
-    );
+    int *cluster_used = calloc((size_t)cluster_count, sizeof(int));
 
-    if (max_pairs > 0) {
-        candidates = malloc(
-            max_pairs * sizeof(AssociationCandidate)
-        );
-    }
-
-    if (track_used == NULL ||
-        cluster_used == NULL ||
-        (max_pairs > 0 && candidates == NULL)) {
-
-        free(candidates);
-        free(track_used);
+    if (eligible == NULL || cluster_used == NULL) {
+        free(eligible);
         free(cluster_used);
-
         return 0;
     }
 
-    size_t candidate_count = 0;
-
-    double frame_timestamp = clusters[0].timestamp;
-
-    expire_stale_tracks(
-        targets,
-        *count,
-        frame_timestamp
-    );
-
-    /* Generate valid track-cluster pairs. */
+    int eligible_count = 0;
 
     for (int ti = 0; ti < track_capacity; ti++) {
-        Target *target = &targets[ti];
+        const Target *target = &targets[ti];
 
         if (!target->active) {
             continue;
         }
 
-        for (int ci = 0; ci < cluster_count; ci++) {
-            const RadarCluster *cluster = &clusters[ci];
+        double dt = frame_timestamp - target->timestamp;
 
-            if (cluster->sensor_id != target->sensor_id) {
-                continue;
-            }
-
-            if (fabs(cluster->timestamp - frame_timestamp) > 1e-9) {
-                continue;
-            }
-
-            double dt = cluster->timestamp - target->timestamp;
-
-            if (dt <= MIN_DT || dt > MAX_TRACK_GAP) {
-                continue;
-            }
-
-            double predicted_x =
-                target->kalman.state[0] +
-                target->kalman.state[2] * dt;
-
-            double predicted_y =
-                target->kalman.state[1] +
-                target->kalman.state[3] * dt;
-
-            double dx = cluster->x - predicted_x;
-            double dy = cluster->y - predicted_y;
-
-            double distance = sqrt(dx * dx + dy * dy);
-
-            if (distance <= gate_distance) {
-                candidates[candidate_count].track_index = ti;
-                candidates[candidate_count].detection_index = ci;
-                candidates[candidate_count].distance = distance;
-
-                candidate_count++;
-            }
+        if (dt <= MIN_DT || dt > MAX_TRACK_GAP) {
+            continue;
         }
-    }
 
-    if (candidate_count > 1) {
-        qsort(
-            candidates,
-            candidate_count,
-            sizeof(AssociationCandidate),
-            compare_association_candidates
-        );
+        eligible[eligible_count++] = ti;
     }
 
     int processed = 0;
 
-    /* Assign each track and cluster only once. */
+    /* ---- STEP 2: gated cost matrix and one-to-one assignment ---- */
 
-    for (size_t i = 0; i < candidate_count; i++) {
-        int ti = candidates[i].track_index;
-        int ci = candidates[i].detection_index;
+    if (eligible_count > 0) {
 
-        if (track_used[ti] || cluster_used[ci]) {
+        double *cost = malloc(
+            (size_t)eligible_count * (size_t)cluster_count * sizeof(double)
+        );
+
+        int *row_to_col = malloc((size_t)eligible_count * sizeof(int));
+
+        if (cost == NULL || row_to_col == NULL) {
+            free(cost);
+            free(row_to_col);
+            free(eligible);
+            free(cluster_used);
+            return 0;
+        }
+
+        for (int r = 0; r < eligible_count; r++) {
+            const Target *target = &targets[eligible[r]];
+            double dt = frame_timestamp - target->timestamp;
+
+            for (int ci = 0; ci < cluster_count; ci++) {
+                const RadarCluster *cluster = &clusters[ci];
+                double c = NO_PAIR_COST;
+
+#if !SENSOR_FUSION
+                int same_sensor = (cluster->sensor_id == target->sensor_id);
+#else
+                int same_sensor = 1;
+#endif
+
+                if (same_sensor &&
+                    fabs(cluster->timestamp - frame_timestamp) <= 1e-9) {
+
+#if USE_MAHALANOBIS
+                    double d2 = kalman_mahalanobis_sq(
+                        target, cluster->x, cluster->y, dt
+                    );
+
+                    if (d2 <= GATE_CHI2) {
+                        c = d2;
+                    }
+#else
+                    double px = target->kalman.state[0] +
+                                target->kalman.state[2] * dt;
+                    double py = target->kalman.state[1] +
+                                target->kalman.state[3] * dt;
+                    double dx = cluster->x - px;
+                    double dy = cluster->y - py;
+                    double distance = sqrt(dx * dx + dy * dy);
+
+                    if (distance <= gate_distance) {
+                        c = distance;
+                    }
+#endif
+                }
+
+                cost[(size_t)r * (size_t)cluster_count + (size_t)ci] = c;
+            }
+        }
+
+#if USE_HUNGARIAN
+        hungarian_assign(cost, eligible_count, cluster_count, row_to_col);
+#else
+        /* Greedy nearest-first assignment (previous behaviour). */
+        for (int r = 0; r < eligible_count; r++) {
+            row_to_col[r] = -1;
+        }
+
+        {
+            int *col_taken = calloc((size_t)cluster_count, sizeof(int));
+            int *row_taken = calloc((size_t)eligible_count, sizeof(int));
+
+            if (col_taken != NULL && row_taken != NULL) {
+                for (;;) {
+                    double best = NO_PAIR_COST;
+                    int best_r = -1;
+                    int best_c = -1;
+
+                    for (int r = 0; r < eligible_count; r++) {
+                        if (row_taken[r]) {
+                            continue;
+                        }
+
+                        for (int ci = 0; ci < cluster_count; ci++) {
+                            double c = cost[(size_t)r * (size_t)cluster_count + (size_t)ci];
+
+                            if (!col_taken[ci] && c < best) {
+                                best = c;
+                                best_r = r;
+                                best_c = ci;
+                            }
+                        }
+                    }
+
+                    if (best_r < 0) {
+                        break;
+                    }
+
+                    row_to_col[best_r] = best_c;
+                    row_taken[best_r] = 1;
+                    col_taken[best_c] = 1;
+                }
+            }
+
+            free(col_taken);
+            free(row_taken);
+        }
+#endif
+
+        /* ---- STEP 3: apply the accepted assignments ---- */
+
+        for (int r = 0; r < eligible_count; r++) {
+            int ci = row_to_col[r];
+
+            if (ci < 0 ||
+                cost[(size_t)r * (size_t)cluster_count + (size_t)ci] >= NO_PAIR_COST) {
+                continue;
+            }
+
+            int ti = eligible[r];
+            const RadarCluster *cluster = &clusters[ci];
+            int track_id = targets[ti].id;
+
+            if (!update_target(
+                    targets, count, track_id,
+                    cluster->x, cluster->y, cluster->timestamp)) {
+                continue;
+            }
+
+            int index = find_target(targets, *count, track_id);
+
+            if (index < 0) {
+                continue;
+            }
+
+            Target *target = &targets[index];
+
+            target->sensor_id = cluster->sensor_id;
+            target->range = cluster->range;
+            target->azimuth = cluster->azimuth;
+            target->rcs = cluster->rcs;
+            target->radial_velocity = cluster->radial_velocity;
+            target->missed_frames = 0;
+
+            if (cluster->reference_track_id[0] != '\0') {
+                snprintf(
+                    target->reference_track_id,
+                    sizeof(target->reference_track_id),
+                    "%s",
+                    cluster->reference_track_id
+                );
+            }
+
+            if (!target->confirmed &&
+                target->detection_count >= CONFIRM_HITS) {
+                target->confirmed = 1;
+                tracks_confirmed_total++;
+            }
+
+            cluster_track_ids[ci] = track_id;
+            cluster_used[ci] = 1;
+            processed++;
+        }
+
+        free(cost);
+        free(row_to_col);
+    }
+
+    free(eligible);
+
+    /* ---- STEP 4: unmatched clusters start new (tentative) tracks ---- */
+
+    for (int ci = 0; ci < cluster_count; ci++) {
+
+        if (cluster_used[ci]) {
             continue;
         }
 
-        Target *target = &targets[ti];
         const RadarCluster *cluster = &clusters[ci];
 
-        int track_id = target->id;
+        /*
+         * A cluster very close to a track that was already updated in this
+         * frame is most likely a split of that object: do not start a track.
+         */
+        int duplicate = 0;
 
-        int success = update_target(
-            targets,
-            count,
-            track_id,
-            cluster->x,
-            cluster->y,
-            cluster->timestamp
-        );
+        for (int ti = 0; ti < *count; ti++) {
+            const Target *target = &targets[ti];
 
-        if (!success) {
+            if (!target->active ||
+                fabs(target->timestamp - frame_timestamp) > 1e-9) {
+                continue;
+            }
+
+#if !SENSOR_FUSION
+            if (target->sensor_id != cluster->sensor_id) {
+                continue;
+            }
+#endif
+
+            double dx = cluster->x - target->x;
+            double dy = cluster->y - target->y;
+
+            if (sqrt(dx * dx + dy * dy) <= gate_distance) {
+                duplicate = 1;
+                break;
+            }
+        }
+
+        if (duplicate) {
             continue;
         }
 
-        int updated_index = find_target(
-            targets,
-            *count,
-            track_id
-        );
+        while (find_target(targets, *count, *next_track_id) >= 0) {
+            (*next_track_id)++;
+        }
 
-        if (updated_index < 0) {
+        int track_id = *next_track_id;
+
+        if (!update_target(
+                targets, count, track_id,
+                cluster->x, cluster->y, cluster->timestamp)) {
             continue;
         }
 
-        target = &targets[updated_index];
+        (*next_track_id)++;
+
+        int index = find_target(targets, *count, track_id);
+
+        if (index < 0) {
+            continue;
+        }
+
+        Target *target = &targets[index];
 
         target->sensor_id = cluster->sensor_id;
         target->range = cluster->range;
         target->azimuth = cluster->azimuth;
         target->rcs = cluster->rcs;
         target->radial_velocity = cluster->radial_velocity;
+        target->label_id = -1;
         target->missed_frames = 0;
-
-        /*
-         * Transfer reference ID to an existing track.
-         * Do not erase an existing ID when the cluster ID is empty.
-         */
 
         if (cluster->reference_track_id[0] != '\0') {
             snprintf(
@@ -1283,49 +1548,38 @@ int update_radar_clusters(
             );
         }
 
+#if DOPPLER_INIT
+        {
+            double r = sqrt(cluster->x * cluster->x +
+                            cluster->y * cluster->y);
+
+            if (r > 1e-6) {
+                double vr = cluster->radial_velocity;
+
+                target->kalman.state[2] = vr * cluster->x / r;
+                target->kalman.state[3] = vr * cluster->y / r;
+                target->vx = target->kalman.state[2];
+                target->vy = target->kalman.state[3];
+                target->speed = fabs(vr);
+            }
+        }
+#endif
+
+        tracks_created_total++;
+
+        if (CONFIRM_HITS <= 1) {
+            target->confirmed = 1;
+            tracks_confirmed_total++;
+        }
+        else {
+            target->confirmed = 0;
+        }
+
         cluster_track_ids[ci] = track_id;
-
-        track_used[ti] = 1;
         cluster_used[ci] = 1;
-
         processed++;
     }
 
-    /* Create new tracks for unmatched clusters. */
-
-    for (int ci = 0; ci < cluster_count; ci++) {
-        if (cluster_used[ci]) {
-            continue;
-        }
-
-        const RadarCluster *cluster = &clusters[ci];
-
-        int track_id = update_radar_detection(
-            targets,
-            count,
-            next_track_id,
-            cluster->sensor_id,
-            cluster->range,
-            cluster->azimuth,
-            cluster->rcs,
-            cluster->radial_velocity,
-            cluster->x,
-            cluster->y,
-            cluster->timestamp,
-            NULL,
-            cluster->reference_track_id,
-            -1,
-            gate_distance
-        );
-
-        if (track_id > 0) {
-            cluster_track_ids[ci] = track_id;
-            processed++;
-        }
-    }
-
-    free(candidates);
-    free(track_used);
     free(cluster_used);
 
     return processed;

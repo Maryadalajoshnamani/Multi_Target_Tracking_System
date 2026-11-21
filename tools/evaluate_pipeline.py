@@ -25,6 +25,7 @@ Important limitations (also written into the report):
     several sensors legitimately receives several internal IDs.
     Identity metrics are therefore computed per (sensor, reference object).
 """
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -38,18 +39,28 @@ LOG = Path("radar_association_log_frame.csv")
 STATIC_LABEL = 11
 
 
-def load_ground_truth():
+def load_ground_truth(raw_path, tmin=None, tmax=None):
     raw = pd.read_csv(
-        RAW,
+        raw_path,
         usecols=["timestamp", "sensor_id", "track_id", "label_id"],
     )
+    # Same time base as the C program: seconds since the first row.
+    raw["t"] = (raw["timestamp"] - raw["timestamp"].iloc[0]) / 1e6
+    if tmin is not None:
+        raw = raw[raw["t"] >= tmin]
+    if tmax is not None:
+        raw = raw[raw["t"] < tmax]
     gt = raw[raw["track_id"].notna() & (raw["label_id"] != STATIC_LABEL)]
     return raw, gt
 
 
-def load_log():
-    log = pd.read_csv(LOG, dtype={"Reference_ID": str})
+def load_log(log_path, tmin=None, tmax=None):
+    log = pd.read_csv(log_path, dtype={"Reference_ID": str})
     log = log[log["Reference_ID"].notna() & (log["Label_ID"] != STATIC_LABEL)]
+    if tmin is not None:
+        log = log[log["Timestamp"] >= tmin]
+    if tmax is not None:
+        log = log[log["Timestamp"] < tmax]
     return log.sort_values(["Sensor_ID", "Reference_ID", "Timestamp"])
 
 
@@ -64,12 +75,25 @@ def idf1_for_sensor(group, gt_total_for_sensor):
 
 
 def main():
-    for p in (RAW, LOG):
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
+    parser.add_argument("--raw", default=str(RAW), help="RadarScenes radar_detections.csv")
+    parser.add_argument("--log", default=str(LOG), help="association log written by option 9")
+    parser.add_argument("--out-dir", default=".", help="where to write the report files")
+    parser.add_argument("--tmin", type=float, default=None, help="first second to evaluate")
+    parser.add_argument("--tmax", type=float, default=None, help="end second (exclusive)")
+    parser.add_argument("--quiet", action="store_true", help="do not print the report")
+    args = parser.parse_args()
+
+    raw_path, log_path = Path(args.raw), Path(args.log)
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    for p in (raw_path, log_path):
         if not p.exists():
             sys.exit(f"Missing file: {p}")
 
-    raw, gt = load_ground_truth()
-    log = load_log()
+    raw, gt = load_ground_truth(raw_path, args.tmin, args.tmax)
+    log = load_log(log_path, args.tmin, args.tmax)
 
     gt_total = len(gt)
     logged = len(log)
@@ -163,6 +187,47 @@ def main():
     out("(Continuity ignores detections dropped as noise, so it is higher than IDR.)")
     out("")
 
+    # ---------- fused identity metrics (all sensors together) ----------
+    # One physical object should keep one ID no matter which sensor sees it.
+    ftable = pd.crosstab(log["Reference_ID"], log["Internal_ID"])
+    frows, fcols = linear_sum_assignment(-ftable.values)
+    f_idtp = int(ftable.values[frows, fcols].sum())
+    f_idfn = gt_total - f_idtp
+    f_idfp = logged - f_idtp
+    f_idr = f_idtp / gt_total if gt_total else 0.0
+    f_idp = f_idtp / logged if logged else 0.0
+    f_den = 2 * f_idtp + f_idfp + f_idfn
+    f_idf1 = 2 * f_idtp / f_den if f_den else 0.0
+
+    # identity switches over time, one decision per frame (mode of IDs)
+    f_switches = 0
+    f_tracks = {}
+    for ref, g in log.groupby("Reference_ID"):
+        per_frame = (
+            g.groupby(["Timestamp", "Sensor_ID"])["Internal_ID"]
+            .agg(lambda x: x.mode().iloc[0])
+            .reset_index()
+            .sort_values("Timestamp")["Internal_ID"]
+            .tolist()
+        )
+        f_switches += sum(1 for a, b in zip(per_frame, per_frame[1:]) if a != b)
+        f_tracks[ref[:8]] = int(g["Internal_ID"].nunique())
+
+    out("FUSED IDENTITY METRICS (all four sensors together)")
+    out(f"IDTP / IDFN / IDFP        : {f_idtp:,} / {f_idfn:,} / {f_idfp:,}")
+    out(f"IDR / IDP / IDF1          : {100*f_idr:.2f}% / {100*f_idp:.2f}% / {100*f_idf1:.2f}%")
+    out(f"Identity switches (frame) : {f_switches}")
+    out(f"Tracks per object         : {f_tracks}")
+    out("")
+
+    summary.update(
+        fused_idr_percent=round(100 * f_idr, 2),
+        fused_idp_percent=round(100 * f_idp, 2),
+        fused_idf1_percent=round(100 * f_idf1, 2),
+        fused_identity_switches=int(f_switches),
+        fused_tracks_per_object=f_tracks,
+    )
+
     # ---------- track purity ----------
     purity_rows = []
     for tid, g in log.groupby("Internal_ID"):
@@ -215,9 +280,10 @@ def main():
         per_object=per_object,
     )
 
-    Path("evaluation_report.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    Path("evaluation_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    print("\n".join(lines))
+    (out_dir / "evaluation_report.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (out_dir / "evaluation_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    if not args.quiet:
+        print("\n".join(lines))
 
 
 if __name__ == "__main__":

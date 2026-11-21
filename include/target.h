@@ -42,6 +42,7 @@ typedef struct {
     double speed;
 
     int active;
+    int confirmed;   /* 0 = tentative track, 1 = confirmed */
     int missed_frames;
     int detection_count;
 

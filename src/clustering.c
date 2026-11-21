@@ -106,13 +106,7 @@ static void calculate_cluster_properties(
 
             if (reference_id[0] == '\0') {
 
-                strncpy(
-                    reference_id,
-                    d->reference_track_id,
-                    MAX_REFERENCE_ID_LENGTH - 1
-                );
-
-                reference_id[MAX_REFERENCE_ID_LENGTH - 1] = '\0';
+                snprintf(reference_id, sizeof(reference_id), "%s", d->reference_track_id);
             }
             else if (
                 strcmp(reference_id, d->reference_track_id) != 0
@@ -144,15 +138,7 @@ static void calculate_cluster_properties(
      */
     if (!reference_conflict && reference_id[0] != '\0') {
 
-        strncpy(
-            cluster->reference_track_id,
-            reference_id,
-            MAX_REFERENCE_ID_LENGTH - 1
-        );
-
-        cluster->reference_track_id[
-            MAX_REFERENCE_ID_LENGTH - 1
-        ] = '\0';
+        snprintf(cluster->reference_track_id, sizeof(cluster->reference_track_id), "%s", reference_id);
     }
 }
 

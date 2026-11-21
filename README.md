@@ -28,10 +28,10 @@ RadarScenes CSV  ->  reader  ->  frame buffer (same timestamp)
 | --- | --- | --- |
 | Reading | `src/radar_reader.c` | Parses the CSV, converts timestamps to seconds |
 | Clustering | `src/clustering.c` | Groups detections of one sensor and one frame within 1.25 m (min. 2 points) and computes a centroid. A cluster receives a reference ID only if all labelled points in it agree |
-| Association | `src/tracker.c` | Gates clusters against Kalman-predicted track positions (5 m), assigns nearest pairs first, starts new tracks for the rest, expires tracks after 1.5 s without a match |
-| Filtering | `src/tracker.c` | Constant-velocity Kalman filter, state `[x, y, vx, vy]` |
+| Association | `src/tracker.c`, `src/assignment.c` | Mahalanobis (chi-square 9.21) gating against Kalman predictions, optimal one-to-one matching with the Hungarian algorithm, new tracks start tentative and are confirmed after 3 hits, tentative tracks expire after 0.5 s and confirmed ones after 1.5 s. Tracks are shared across all four sensors |
+| Filtering | `src/tracker.c` | Constant-velocity Kalman filter, state `[x, y, vx, vy]`, continuous white-noise-acceleration process noise |
 | Storage | `src/database.c` | `radar_target_latest` (current state) and `radar_target_history` (all observations) |
-| Orchestration | `src/main.c` | Menu; option 9 runs the real-dataset pipeline |
+| Orchestration | `src/pipeline.c`, `src/main.c` | `pipeline.c` runs the real-dataset pipeline; `main.c` is the menu and command-line entry |
 | Evaluation | `tools/evaluate_pipeline.py` | Identity metrics against the RadarScenes ground-truth labels |
 | Dashboard | `dashboard/` | Radar view, tables, Kalman analysis, prediction and validation results |
 
@@ -40,8 +40,10 @@ RadarScenes CSV  ->  reader  ->  frame buffer (same timestamp)
 Requires GCC and the SQLite development library (the commands below are for MSYS2 UCRT64 on Windows).
 
 ```bash
-gcc -std=c11 -Wall -Wextra -Iinclude src/main.c src/tracker.c src/radar_reader.c src/clustering.c src/database.c -o radar_tracker.exe -lm -lsqlite3
-./radar_tracker.exe
+gcc -std=c11 -O2 -Wall -Wextra -Iinclude src/*.c -o radar_tracker.exe -lm -lsqlite3
+./radar_tracker.exe                 # interactive menu
+./radar_tracker.exe --process       # headless: run the pipeline and exit
+./radar_tracker.exe --help          # --data <csv>, --db <file>, --verbose
 ```
 
 Menu option **9** processes `data/radarscenes/sequence_151/radar_detections.csv`
@@ -66,34 +68,40 @@ https://zenodo.org/records/4559821 and place `sequence_151` under `data/radarsce
 | Measurement | Value |
 | --- | --- |
 | Radar detections / frames | 345,410 / 3,691 |
-| Detections placed in clusters | 72,546 (21.0%); the other 79.0% are treated as noise |
-| Tracks created | 1,410 (all stored in SQLite; about 124 slots are kept in memory) |
+| Detections placed in clusters | 71,909; the rest are treated as noise |
+| Tracks created / confirmed | 835 / 258 (only confirmed tracks are stored and shown) |
 | Labelled moving detections (ground truth) | 8,205 from 5 reference objects |
-| Labelled detections that reach a track | 7,108 (86.6%) |
-| Track purity | 100%, no track mixes two reference objects |
-| Identity F1 (IDF1) | 42.0% (IDR 39.1%, IDP 45.2%) |
-| Adjacent-detection continuity | 99.5%, 36 identity switches |
+| Labelled detections that reach a track | 7,102 (86.6%) |
+| Identity F1 (IDF1), fused across sensors | **89.3%** (IDR 83.3%, IDP 96.2%) |
+| Identity switches | 42; one track mixes two objects (weighted purity 99.4%) |
+| Most heavily labelled object (5,541 detections) | 3 tracks (was 29 before the changes) |
+| First half / second half of the sequence | IDF1 87.8% / 90.5% |
 
-How to read this: tracks are **pure** (a track never follows two different objects),
-but a moving object is **fragmented** into several tracks. The most heavily
-labelled object (5,541 detections) is split into 29 tracks across the four sensors.
-Continuity is high because it only compares neighbouring detections; IDF1 is the
-stricter measure and is the one to quote. See `docs/VALIDATION_REPORT.md` for details,
-the parameter sensitivity study and the causes of fragmentation.
+Before these changes (per-sensor tracking, greedy matching, a nearly-zero process
+noise) IDF1 was 22-42% depending on how it was measured. The biggest single cause was an
+overconfident filter that overshot after detection gaps; fusing the sensors and
+using optimal assignment did the rest. See `docs/VALIDATION_REPORT.md`.
+
+## Tests
+
+```bash
+gcc -Iinclude tests/test_assignment.c src/assignment.c -lm -o test_assignment && ./test_assignment
+python tests/test_evaluate.py
+```
 
 ## Limitations
 
-- Results come from **one sequence with five labelled moving objects**. They are not a general benchmark.
-- **MOTA and MOTP are not reported.** RadarScenes provides labelled detections, not per-frame object positions, so those metrics are not defined here.
+- Results come from **one sequence with five labelled moving objects**. They are not a general benchmark, and the tuned parameters (process noise, gate, confirmation count) were chosen on this same sequence. Sensitivity runs show a fairly narrow good region, so expect lower numbers on other data.
+- **MOTA and MOTP are not reported.** RadarScenes has no per-frame object positions.
 - IDP is optimistic: unlabelled clutter that shares a track with a labelled object is not visible in the log.
-- Each sensor is tracked separately. The same physical object seen by several sensors receives several IDs; there is no cross-sensor fusion.
-- Association is greedy nearest-neighbour with a constant-velocity model. It has no covariance-based gating and no track-confirmation logic.
-- The dashboard on GitHub Pages is a published snapshot. It does not connect to a running C program.
-- The `reference_track_id` ground truth is used only for evaluation. It is never used to decide which detections belong together.
+- 13.4% of labelled detections never reach a confirmed track (mostly isolated single-point returns removed by clustering).
+- The dashboard on GitHub Pages is a published snapshot; it does not connect to a running C program and does not yet replay the sequence.
+- The `reference_track_id` ground truth is used only for evaluation, never for association.
+- Developed and tested on Linux; not re-tested on Windows/MSYS2.
 
 ## Possible future work
 
-Cross-sensor fusion; Mahalanobis (covariance) gating; a global assignment step (Hungarian algorithm) instead of greedy matching; track confirmation and deletion rules; evaluation on more RadarScenes sequences.
+Evaluation on more RadarScenes sequences; automatic parameter selection on held-out sequences; a dashboard replay of the real sequence; Doppler-aware association (a Doppler initialisation was tried and gave no benefit).
 
 ## Author
 

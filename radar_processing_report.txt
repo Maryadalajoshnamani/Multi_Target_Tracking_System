@@ -5,8 +5,9 @@ Sequence: sequence_151
 Clustering epsilon: 1.25 metres
 Minimum cluster points: 2
 Total detections: 345410
-Processed detections: 72546
-Unclustered or unprocessed detections: 272864
+Processed detections: 71909
+Unclustered or unprocessed detections: 273501
 Radar frames: 3691
-Total tracks created: 1410
-Track slots in memory (inactive slots are reused): 124
+Total tracks created: 835
+Confirmed tracks: 258
+Track slots in memory (inactive slots are reused): 80

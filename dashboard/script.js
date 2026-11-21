@@ -74,9 +74,9 @@ const CENTER_X = canvas.width / 2;
 const CENTER_Y = canvas.height / 2;
 const RADAR_RADIUS = 260;
 
-const MAX_SPEED = 5;
-const RADAR_MIN = 0;
-const RADAR_MAX = 100;
+const MAX_SPEED = 40;      // metres per second
+const RADAR_RANGE = 120;   // metres from the car shown on the display
+const PX_PER_METRE = RADAR_RADIUS / RADAR_RANGE;
 
 let scanAngle = 0;
 let radarRunning = true;
@@ -108,8 +108,8 @@ function filterTargets() {
 
     if (info) {
         info.textContent = selectedTarget === "all"
-            ? "Showing all available targets."
-            : "Currently viewing Target " + selectedTarget;
+            ? "Showing all available objects."
+            : "Showing ID " + selectedTarget;
     }
 
     updateDashboard();
@@ -125,12 +125,12 @@ function updateFilterOptions() {
     const previousValue = selectedTarget;
 
     dropdown.innerHTML =
-        '<option value="all">Show All Targets</option>';
+        '<option value="all">All objects</option>';
 
     targets.forEach(target => {
         const option = document.createElement("option");
         option.value = target.id;
-        option.textContent = "Target " + target.id;
+        option.textContent = "ID " + target.id;
         dropdown.appendChild(option);
     });
 
@@ -149,27 +149,27 @@ function updateFilterOptions() {
 
     if (info) {
         info.textContent = selectedTarget === "all"
-            ? "Showing all available targets."
-            : "Currently viewing Target " + selectedTarget;
+            ? "Showing all available objects."
+            : "Showing ID " + selectedTarget;
     }
 }
 
 // 6. COORDINATE CONVERSION
 
 function radarX(x) {
-    return CENTER_X + (x - 50) * 4.5;
+    return CENTER_X + x * PX_PER_METRE;
 }
 
 function radarY(y) {
-    return CENTER_Y - (y - 50) * 4.5;
+    return CENTER_Y - y * PX_PER_METRE;
 }
 
 // 7. DISTANCE CALCULATION
 
 function calculateDistance(target) {
     return Math.sqrt(
-        Math.pow(target.kalman_x - 50, 2) +
-        Math.pow(target.kalman_y - 50, 2)
+        Math.pow(target.kalman_x, 2) +
+        Math.pow(target.kalman_y, 2)
     );
 }
 
@@ -178,16 +178,25 @@ function calculateDistance(target) {
 function drawRadarBackground() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    ctx.fillStyle = "#071321";
+    ctx.fillStyle = "#10162e";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    ctx.strokeStyle = "#1c8068";
+    ctx.strokeStyle = "#2a3366";
     ctx.lineWidth = 1;
 
-    for (let radius = 65; radius <= RADAR_RADIUS; radius += 65) {
+    ctx.font = "12px 'IBM Plex Sans', Arial, sans-serif";
+    ctx.textAlign = "left";
+
+    for (let metres = 30; metres <= RADAR_RANGE; metres += 30) {
+        const radius = metres * PX_PER_METRE;
+
+        ctx.strokeStyle = "#2a3366";
         ctx.beginPath();
         ctx.arc(CENTER_X, CENTER_Y, radius, 0, Math.PI * 2);
         ctx.stroke();
+
+        ctx.fillStyle = "#6f7bb5";
+        ctx.fillText(metres + " m", CENTER_X + 5, CENTER_Y - radius + 14);
     }
 
     ctx.beginPath();
@@ -200,7 +209,7 @@ function drawRadarBackground() {
 
     ctx.stroke();
 
-    ctx.fillStyle = "#42d6a4";
+    ctx.fillStyle = "#93abff";
     ctx.beginPath();
     ctx.arc(CENTER_X, CENTER_Y, 4, 0, Math.PI * 2);
     ctx.fill();
@@ -219,10 +228,10 @@ function drawRadarSweep() {
         CENTER_X, CENTER_Y, sweepX, sweepY
     );
 
-    gradient.addColorStop(0, "rgba(66,214,164,0.5)");
-    gradient.addColorStop(1, "rgba(66,214,164,0.05)");
+    gradient.addColorStop(0, "rgba(147,171,255,0.45)");
+    gradient.addColorStop(1, "rgba(147,171,255,0.04)");
 
-    ctx.strokeStyle = "#42d6a4";
+    ctx.strokeStyle = "#93abff";
     ctx.lineWidth = 2;
 
     ctx.beginPath();
@@ -251,7 +260,7 @@ function drawRadarSweep() {
 function drawTargetHistory(target) {
     if (!target.history || target.history.length < 2) return;
 
-    ctx.strokeStyle = "rgba(66,214,164,0.65)";
+    ctx.strokeStyle = "rgba(147,171,255,0.55)";
     ctx.lineWidth = 2;
     ctx.beginPath();
 
@@ -287,7 +296,7 @@ function drawPredictedPositions() {
         const futureY =
             target.kalman_y + target.kalman_vy * time;
 
-        ctx.strokeStyle = "#ff8c42";
+        ctx.strokeStyle = "#f4b53f";
         ctx.lineWidth = 2;
         ctx.setLineDash([5, 5]);
 
@@ -303,7 +312,7 @@ function drawPredictedPositions() {
 
         ctx.setLineDash([]);
 
-        ctx.fillStyle = "#ff8c42";
+        ctx.fillStyle = "#f4b53f";
         ctx.beginPath();
         ctx.arc(radarX(futureX), radarY(futureY), 5, 0, Math.PI * 2);
         ctx.fill();
@@ -313,17 +322,20 @@ function drawPredictedPositions() {
 // 12. DRAW TARGETS
 
 function drawTargets() {
-    getVisibleTargets().forEach(target => {
+    const visible = getVisibleTargets();
+    const showLabels = visible.length <= 12;
+
+    visible.forEach(target => {
         drawTargetHistory(target);
 
         // Measured position
-        ctx.fillStyle = "#ffcf55";
+        ctx.fillStyle = "#ee5b34";
         ctx.beginPath();
         ctx.arc(radarX(target.x), radarY(target.y), 4, 0, Math.PI * 2);
         ctx.fill();
 
         // Kalman position
-        ctx.fillStyle = "#42d6a4";
+        ctx.fillStyle = "#93abff";
         ctx.beginPath();
         ctx.arc(
             radarX(target.kalman_x),
@@ -334,14 +346,16 @@ function drawTargets() {
         );
         ctx.fill();
 
+        if (showLabels) {
         ctx.fillStyle = "#ffffff";
-        ctx.font = "13px Arial";
-
-        ctx.fillText(
-            "ID " + target.id,
-            radarX(target.kalman_x) + 10,
-            radarY(target.kalman_y) - 10
-        );
+            ctx.font = "13px 'IBM Plex Sans', Arial, sans-serif";
+    
+            ctx.fillText(
+                "ID " + target.id,
+                radarX(target.kalman_x) + 10,
+                radarY(target.kalman_y) - 10
+            );
+        }
     });
 }
 
@@ -504,11 +518,11 @@ function drawNoiseComparisonChart() {
     );
 
     if (visibleTargets.length === 0) {
-        chartCtx.fillStyle = "#555555";
-        chartCtx.font = "18px Arial";
+        chartCtx.fillStyle = "#586082";
+        chartCtx.font = "18px 'IBM Plex Sans', Arial, sans-serif";
         chartCtx.textAlign = "center";
         chartCtx.fillText(
-            "Run measurement noise simulation to display chart",
+            "No error comparison available yet",
             width / 2,
             height / 2
         );
@@ -537,11 +551,11 @@ function drawNoiseComparisonChart() {
     const step = chartMax / 5;
 
     // Horizontal grid lines and Y-axis labels
-    chartCtx.strokeStyle = "#e3e8ee";
+    chartCtx.strokeStyle = "#d8ddeb";
     chartCtx.lineWidth = 1;
 
-    chartCtx.font = "13px Arial";
-    chartCtx.fillStyle = "#344054";
+    chartCtx.font = "13px 'IBM Plex Sans', Arial, sans-serif";
+    chartCtx.fillStyle = "#586082";
     chartCtx.textAlign = "right";
 
     for (let i = 0; i <= 5; i++) {
@@ -557,7 +571,7 @@ function drawNoiseComparisonChart() {
     }
 
     // Axes
-    chartCtx.strokeStyle = "#344054";
+    chartCtx.strokeStyle = "#586082";
     chartCtx.lineWidth = 2;
 
     chartCtx.beginPath();
@@ -586,7 +600,7 @@ function drawNoiseComparisonChart() {
         const baseY = top + plotHeight;
 
         // Raw measurement error bar
-        chartCtx.fillStyle = "#e5a33d";
+        chartCtx.fillStyle = "#ee5b34";
 
         chartCtx.fillRect(
             rawX,
@@ -596,7 +610,7 @@ function drawNoiseComparisonChart() {
         );
 
         // Kalman estimation error bar
-        chartCtx.fillStyle = "#269b79";
+        chartCtx.fillStyle = "#2947d6";
 
         chartCtx.fillRect(
             kalmanX,
@@ -606,8 +620,8 @@ function drawNoiseComparisonChart() {
         );
 
         // Values above bars
-        chartCtx.font = "12px Arial";
-        chartCtx.fillStyle = "#263238";
+        chartCtx.font = "12px 'IBM Plex Sans', Arial, sans-serif";
+        chartCtx.fillStyle = "#141a37";
         chartCtx.textAlign = "center";
 
         chartCtx.fillText(
@@ -623,9 +637,9 @@ function drawNoiseComparisonChart() {
         );
 
         // Target labels
-        chartCtx.font = "14px Arial";
+        chartCtx.font = "14px 'IBM Plex Sans', Arial, sans-serif";
         chartCtx.fillText(
-            "Target " + target.id,
+            "ID " + target.id,
             centerX,
             baseY + 25
         );
@@ -637,20 +651,20 @@ function drawNoiseComparisonChart() {
     chartCtx.translate(20, top + plotHeight / 2);
     chartCtx.rotate(-Math.PI / 2);
 
-    chartCtx.font = "14px Arial";
+    chartCtx.font = "14px 'IBM Plex Sans', Arial, sans-serif";
     chartCtx.textAlign = "center";
-    chartCtx.fillStyle = "#344054";
+    chartCtx.fillStyle = "#586082";
 
-    chartCtx.fillText("Average Position Error (units)", 0, 0);
+    chartCtx.fillText("Average position error (m)", 0, 0);
 
     chartCtx.restore();
 
-    chartCtx.font = "14px Arial";
+    chartCtx.font = "14px 'IBM Plex Sans', Arial, sans-serif";
     chartCtx.textAlign = "center";
-    chartCtx.fillStyle = "#344054";
+    chartCtx.fillStyle = "#586082";
 
     chartCtx.fillText(
-        "Targets",
+        "Tracked object",
         left + plotWidth / 2,
         height - 12
     );
@@ -697,10 +711,10 @@ function predictTargets() {
     const visibleTargets = getVisibleTargets();
 
     results.innerHTML =
-        "<strong>Kalman-Based Predicted Positions</strong><br>";
+        "<strong>Predicted positions in " + time + " s</strong><br>";
 
     if (visibleTargets.length === 0) {
-        results.innerHTML += "No active targets available.";
+        results.innerHTML += "No objects to predict yet.";
         return;
     }
 
@@ -712,7 +726,7 @@ function predictTargets() {
             target.kalman_y + target.kalman_vy * time;
 
         results.innerHTML += `
-            Target ${target.id}:
+            ID ${target.id}:
             X = ${futureX.toFixed(2)},
             Y = ${futureY.toFixed(2)}<br>
         `;
@@ -739,26 +753,22 @@ function detectTargetAlerts() {
             alerts.push({
                 type: "warning",
                 message:
-                    "HIGH-SPEED ALERT: Target " +
-                    target.id + " is moving at " +
-                    speed.toFixed(2) + " units/second."
+                    "ID " + target.id + " is moving at " +
+                    speed.toFixed(1) + " m/s, which is fast."
             });
         }
 
         if (
             target.active &&
             (
-                target.kalman_x < RADAR_MIN ||
-                target.kalman_x > RADAR_MAX ||
-                target.kalman_y < RADAR_MIN ||
-                target.kalman_y > RADAR_MAX
+                Math.hypot(target.kalman_x, target.kalman_y) > RADAR_RANGE
             )
         ) {
             alerts.push({
                 type: "danger",
                 message:
-                    "BOUNDARY ALERT: Target " +
-                    target.id + " is outside the radar area."
+                    "ID " + target.id + " is more than " +
+                    RADAR_RANGE + " m from the car."
             });
         }
 
@@ -766,26 +776,25 @@ function detectTargetAlerts() {
             alerts.push({
                 type: "danger",
                 message:
-                    "INACTIVE ALERT: Target " +
-                    target.id + " is inactive."
+                    "ID " + target.id + " has not been seen recently."
             });
         }
     });
 
     if (alerts.length === 0) {
         alertSummary.innerHTML =
-            "<p>System monitoring is active. No critical alerts.</p>";
+            "<p>Monitoring is on. Nothing needs attention.</p>";
 
         alertList.innerHTML =
             '<div class="alert-item alert-success">' +
-            "No alerts detected. All targets are within normal limits." +
+            "All objects are within normal limits." +
             "</div>";
 
         return;
     }
 
     alertSummary.innerHTML =
-        "<p>" + alerts.length + " alert(s) detected.</p>";
+        "<p>" + alerts.length + (alerts.length === 1 ? " item needs" : " items need") + " a look.</p>";
 
     alertList.innerHTML = "";
 
@@ -977,12 +986,16 @@ async function loadCTargetData() {
 
 // 24B. LOAD REAL-DATASET VALIDATION RESULTS
 
-function validationCard(label, value, hint) {
+function validationCard(label, value, hint, percent, isLead) {
     return (
-        '<div class="validation-card">' +
+        '<div class="validation-card' + (isLead ? ' lead-card' : '') + '">' +
         '<span class="validation-value">' + value + '</span>' +
         '<span class="validation-label">' + label + '</span>' +
         (hint ? '<span class="validation-hint">' + hint + '</span>' : '') +
+        (percent !== undefined
+            ? '<div class="meter"><span style="width:' +
+              Math.max(0, Math.min(100, percent)) + '%"></span></div>'
+            : '') +
         '</div>'
     );
 }
@@ -1009,46 +1022,53 @@ async function loadValidationResults() {
 
         const r = await response.json();
         const fmt = n => Number(n).toLocaleString("en-US");
+        const pct = n => (Math.round(Number(n) * 10) / 10) + "%";
 
         subtitle.textContent =
-            r.dataset.name + " " + r.dataset.sequence + ": " +
-            fmt(r.dataset.total_detections) + " radar detections, " +
-            fmt(r.pipeline.frames) + " frames, " +
-            r.dataset.reference_objects + " labelled moving objects.";
+            "Tested on a real recording (" + r.dataset.name + " " +
+            r.dataset.sequence + "): " + fmt(r.dataset.total_detections) +
+            " radar points over " + fmt(r.pipeline.frames) +
+            " frames, with " + r.dataset.reference_objects +
+            " moving objects whose true identities are known. " +
+            "This is one recording, so treat the scores as a good sign, not a guarantee.";
 
         cards.innerHTML =
             validationCard(
-                "Tracks created",
-                fmt(r.pipeline.tracks_created),
-                "stored in SQLite"
+                "Kept the right ID",
+                pct(r.evaluation.idf1_percent),
+                "Identity F1 score. Higher means each object keeps one ID for longer.",
+                r.evaluation.idf1_percent,
+                true
             ) +
             validationCard(
-                "Detections treated as noise",
-                r.pipeline.noise_percent + "%",
-                "eps " + r.pipeline.cluster_epsilon_m + " m, min " +
-                r.pipeline.cluster_min_points + " points"
-            ) +
-            validationCard(
-                "Labelled detections tracked",
-                r.evaluation.coverage_percent + "%",
+                "Moving objects found",
+                pct(r.evaluation.coverage_percent),
                 fmt(r.evaluation.gt_in_tracks) + " of " +
-                fmt(r.dataset.labelled_dynamic_detections)
+                fmt(r.dataset.labelled_dynamic_detections) +
+                " known detections ended up in a track",
+                r.evaluation.coverage_percent
             ) +
             validationCard(
-                "Identity F1 (IDF1)",
-                r.evaluation.idf1_percent + "%",
-                "IDR " + r.evaluation.idr_percent + "%, IDP " +
-                r.evaluation.idp_percent + "%"
+                "Followed the right object",
+                pct(r.evaluation.idp_percent),
+                "Precision. Slightly optimistic because stray points on a track are not counted.",
+                r.evaluation.idp_percent
             ) +
             validationCard(
-                "Track purity",
-                r.evaluation.weighted_purity_percent + "%",
-                r.evaluation.mixed_tracks + " tracks mix two objects"
-            ) +
-            validationCard(
-                "Identity switches",
+                "ID mix-ups",
                 fmt(r.evaluation.identity_switches),
-                "continuity " + r.evaluation.continuity_percent + "%"
+                r.evaluation.mixed_tracks + " track mixed two objects"
+            ) +
+            validationCard(
+                "Tracks kept",
+                fmt(r.pipeline.tracks_confirmed),
+                "out of " + fmt(r.pipeline.tracks_created) +
+                " started; the rest were too brief to trust"
+            ) +
+            validationCard(
+                "Radar points ignored",
+                pct(r.pipeline.noise_percent),
+                "isolated points that did not form a group"
             );
 
         tableBody.innerHTML = r.per_object.map(o =>
@@ -1067,7 +1087,7 @@ async function loadValidationResults() {
 
     } catch (error) {
         subtitle.textContent =
-            "Validation results are not available for this build.";
+            "Results are not available for this build.";
         console.error("Validation results error:", error);
     }
 }

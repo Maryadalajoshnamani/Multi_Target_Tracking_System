@@ -2,20 +2,31 @@
   "raw_detections": 345410,
   "gt_detections": 8205,
   "gt_objects": 5,
-  "gt_in_tracks": 7108,
-  "coverage_percent": 86.63,
-  "idtp": 3212,
-  "idfn": 4993,
-  "idfp": 3896,
-  "idr_percent": 39.15,
-  "idp_percent": 45.19,
-  "idf1_percent": 41.95,
-  "transitions": 7095,
-  "identity_switches": 36,
-  "continuity_percent": 99.49,
-  "tracks_with_labelled_detections": 47,
-  "mixed_tracks": 0,
-  "weighted_purity_percent": 100.0,
+  "gt_in_tracks": 7102,
+  "coverage_percent": 86.56,
+  "fused_idr_percent": 83.32,
+  "fused_idp_percent": 96.25,
+  "fused_idf1_percent": 89.32,
+  "fused_identity_switches": 42,
+  "fused_tracks_per_object": {
+    "a6776696": 1,
+    "f0d0097e": 1,
+    "f6a3bd8e": 4,
+    "f6a76074": 3,
+    "fcf2aae8": 5
+  },
+  "idtp": 6836,
+  "idfn": 1369,
+  "idfp": 266,
+  "idr_percent": 83.32,
+  "idp_percent": 96.25,
+  "idf1_percent": 89.32,
+  "transitions": 7089,
+  "identity_switches": 40,
+  "continuity_percent": 99.44,
+  "tracks_with_labelled_detections": 13,
+  "mixed_tracks": 1,
+  "weighted_purity_percent": 99.44,
   "per_object": [
     {
       "sensor": 1,
@@ -31,9 +42,9 @@
       "reference": "f6a76074",
       "gt_detections": 380,
       "logged": 310,
-      "distinct_tracks": 6,
-      "main_track_share": 41.6,
-      "id_switches": 5
+      "distinct_tracks": 1,
+      "main_track_share": 100.0,
+      "id_switches": 0
     },
     {
       "sensor": 1,
@@ -49,36 +60,36 @@
       "reference": "a6776696",
       "gt_detections": 85,
       "logged": 26,
-      "distinct_tracks": 4,
-      "main_track_share": 46.2,
-      "id_switches": 3
+      "distinct_tracks": 1,
+      "main_track_share": 100.0,
+      "id_switches": 0
     },
     {
       "sensor": 2,
       "reference": "f6a3bd8e",
       "gt_detections": 160,
       "logged": 57,
-      "distinct_tracks": 3,
-      "main_track_share": 75.4,
-      "id_switches": 2
+      "distinct_tracks": 4,
+      "main_track_share": 66.7,
+      "id_switches": 5
     },
     {
       "sensor": 2,
       "reference": "f6a76074",
       "gt_detections": 2599,
       "logged": 2442,
-      "distinct_tracks": 6,
-      "main_track_share": 30.7,
-      "id_switches": 5
+      "distinct_tracks": 2,
+      "main_track_share": 99.9,
+      "id_switches": 2
     },
     {
       "sensor": 2,
       "reference": "fcf2aae8",
       "gt_detections": 847,
       "logged": 707,
-      "distinct_tracks": 3,
-      "main_track_share": 97.3,
-      "id_switches": 3
+      "distinct_tracks": 4,
+      "main_track_share": 81.5,
+      "id_switches": 17
     },
     {
       "sensor": 3,
@@ -102,10 +113,10 @@
       "sensor": 3,
       "reference": "f6a76074",
       "gt_detections": 2448,
-      "logged": 2295,
-      "distinct_tracks": 14,
-      "main_track_share": 15.6,
-      "id_switches": 14
+      "logged": 2293,
+      "distinct_tracks": 1,
+      "main_track_share": 100.0,
+      "id_switches": 0
     },
     {
       "sensor": 3,
@@ -113,17 +124,17 @@
       "gt_detections": 783,
       "logged": 676,
       "distinct_tracks": 2,
-      "main_track_share": 97.6,
-      "id_switches": 1
+      "main_track_share": 99.7,
+      "id_switches": 2
     },
     {
       "sensor": 4,
       "reference": "f6a76074",
       "gt_detections": 114,
-      "logged": 75,
-      "distinct_tracks": 3,
-      "main_track_share": 76.0,
-      "id_switches": 2
+      "logged": 71,
+      "distinct_tracks": 2,
+      "main_track_share": 94.4,
+      "id_switches": 1
     },
     {
       "sensor": 4,
@@ -131,8 +142,8 @@
       "gt_detections": 320,
       "logged": 290,
       "distinct_tracks": 2,
-      "main_track_share": 98.3,
-      "id_switches": 1
+      "main_track_share": 62.8,
+      "id_switches": 13
     }
   ]
 }

@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 
@@ -6,314 +5,329 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Multi-Target Radar Tracking System</title>
+    <title>Radar Tracker: following moving objects with radar</title>
 
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
     <link rel="stylesheet" href="style.css">
     <script src="script.js" defer></script>
 </head>
 
 <body>
 
-    <header class="header">
-        <h1>Multi-Target Radar Tracking System</h1>
-        <p>Real-Time Target Monitoring and Tracking Dashboard</p>
+    <a class="skip-link" href="#results">Skip to results</a>
+
+    <header class="topbar">
+        <span class="brand">Radar Tracker</span>
+        <nav aria-label="Page sections">
+            <a href="#results">Results</a>
+            <a href="#how">How it works</a>
+            <a href="#predict">Predict</a>
+            <a href="#details">Details</a>
+        </nav>
     </header>
 
-    <main class="container">
+    <!-- INTRO + RADAR -->
+    <section class="hero">
 
-        <!-- TARGET SUMMARY -->
-        <section class="summary-container">
+        <div class="hero-text">
+            <h1>Following moving objects with radar</h1>
 
-            <div class="summary-card">
-                <h3>Total Targets</h3>
-                <h2 id="totalTargets">3</h2>
-            </div>
-
-            <div class="summary-card">
-                <h3>Active Targets</h3>
-                <h2 id="activeTargets">3</h2>
-            </div>
-
-        </section>
-
-        <!-- REAL DATASET VALIDATION -->
-        <section class="validation-section" id="validationSection">
-
-            <h2>RadarScenes Validation Results</h2>
-
-            <p class="validation-subtitle" id="validationSubtitle">
-                Loading validation results...
+            <p class="lead">
+                A car radar sends back thousands of dots every second.
+                This program groups the dots into objects, gives each
+                object a steady ID, and smooths its path so it can say
+                where the object is heading.
             </p>
 
-            <div class="validation-grid" id="validationCards"></div>
+            <p class="lead">
+                The numbers below come from a real driving recording
+                (RadarScenes), where the correct answer is known.
+            </p>
 
-            <h3 class="validation-heading">
-                Reference Objects (per radar sensor)
-            </h3>
-
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Sensor</th>
-                            <th>Reference</th>
-                            <th>Labelled Detections</th>
-                            <th>In Tracks</th>
-                            <th>Tracks Used</th>
-                            <th>Main Track Share</th>
-                            <th>ID Switches</th>
-                        </tr>
-                    </thead>
-                    <tbody id="validationTable"></tbody>
-                </table>
+            <div class="quick-stats">
+                <div class="quick-stat">
+                    <span class="quick-number" id="totalTargets">0</span>
+                    <span class="quick-label">objects tracked</span>
+                </div>
+                <div class="quick-stat">
+                    <span class="quick-number" id="activeTargets">0</span>
+                    <span class="quick-label">seen recently</span>
+                </div>
             </div>
+        </div>
 
-            <ul class="validation-notes" id="validationNotes"></ul>
+        <div class="radar-panel">
 
-        </section>
-
-        <!-- RADAR MONITORING -->
-        <section class="radar-section">
-
-            <h2>Radar Monitoring Display</h2>
+            <div class="radar-panel-head">
+                <label for="targetFilter">Show</label>
+                <select id="targetFilter" onchange="filterTargets()">
+                    <option value="all">All objects</option>
+                </select>
+            </div>
 
             <div class="radar-container">
                 <canvas id="radarCanvas"
                         width="600"
-                        height="600">
+                        height="600"
+                        role="img"
+                        aria-label="Radar view showing tracked objects">
                 </canvas>
             </div>
+
+            <p id="selectedTargetInfo" class="radar-note">
+                Showing all available objects.
+            </p>
+
+            <ul class="radar-key">
+                <li><span class="dot measured"></span>Radar reading</li>
+                <li><span class="dot filtered"></span>Smoothed position</li>
+                <li><span class="dot predicted"></span>Predicted position</li>
+            </ul>
 
             <div class="radar-controls">
-                <button onclick="startRadar()">Start Radar</button>
-                <button onclick="stopRadar()">Stop Radar</button>
-                <button onclick="resetRadar()">Reset Radar</button>
+                <button onclick="startRadar()">Start</button>
+                <button class="quiet" onclick="stopRadar()">Pause</button>
+                <button class="quiet" onclick="resetRadar()">Reset</button>
             </div>
 
-        </section>
+        </div>
 
-        <!-- TARGET FILTER -->
-        <section class="filter-section">
+    </section>
 
-            <h2>Target Selection</h2>
+    <main class="container">
 
-            <label for="targetFilter">Select Target:</label>
+        <!-- RESULTS -->
+        <section class="block" id="results">
 
-            <select id="targetFilter" onchange="filterTargets()">
-                <option value="all">Show All Targets</option>
-            </select>
+            <h2>How well did it do?</h2>
 
-            <p id="selectedTargetInfo">
-                Showing all available targets.
+            <p class="block-intro" id="validationSubtitle">
+                Loading results...
             </p>
 
-        </section>
+            <div class="result-grid" id="validationCards"></div>
 
-        <!-- TARGET TRACKING INFORMATION -->
-        <section class="table-section">
+            <ul class="validation-notes" id="validationNotes"></ul>
 
-            <h2>Target Tracking Information</h2>
-
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Target ID</th>
-                            <th>Measured X</th>
-                            <th>Measured Y</th>
-                            <th>Kalman X</th>
-                            <th>Kalman Y</th>
-                            <th>Speed</th>
-                            <th>Distance</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-
-                    <tbody id="targetTable"></tbody>
-                </table>
-            </div>
+            <dl class="glossary">
+                <div>
+                    <dt>Track</dt>
+                    <dd>One object followed over time, labelled with an ID number.</dd>
+                </div>
+                <div>
+                    <dt>ID switch</dt>
+                    <dd>The same object gets a new ID by mistake, or two objects swap IDs.</dd>
+                </div>
+                <div>
+                    <dt>Kalman filter</dt>
+                    <dd>A way to combine noisy readings with the expected motion to get a steadier position.</dd>
+                </div>
+                <div>
+                    <dt>Noise</dt>
+                    <dd>Radar points that do not belong to a moving object, such as parked cars and road edges.</dd>
+                </div>
+            </dl>
 
         </section>
 
-        <!-- KALMAN FILTER ANALYSIS -->
-        <section class="table-section">
+        <!-- HOW IT WORKS -->
+        <section class="block" id="how">
 
-            <h2>Kalman Filter Analysis</h2>
+            <h2>How it works</h2>
 
-            <p>
-                Displays measured target positions and
-                Kalman-filtered position estimates.
-            </p>
-
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Target ID</th>
-                            <th>Filtered Velocity X</th>
-                            <th>Filtered Velocity Y</th>
-                            <th>Filtered Position X</th>
-                            <th>Filtered Position Y</th>
-                        </tr>
-                    </thead>
-
-                    <tbody id="kalmanTable"></tbody>
-                </table>
-            </div>
+            <ol class="steps">
+                <li>
+                    <h3>Detect</h3>
+                    <p>Read the radar points from all four sensors on the car.</p>
+                </li>
+                <li>
+                    <h3>Group</h3>
+                    <p>Points that sit close together (within 1.25 m) become one object.</p>
+                </li>
+                <li>
+                    <h3>Match</h3>
+                    <p>Each object is matched to the track it most likely belongs to. A new track is only trusted after three sightings.</p>
+                </li>
+                <li>
+                    <h3>Smooth</h3>
+                    <p>A Kalman filter smooths the path and estimates speed and direction.</p>
+                </li>
+            </ol>
 
         </section>
 
-        <!-- KALMAN PERFORMANCE COMPARISON -->
-        <section class="table-section">
+        <!-- ALERTS + PREDICTION -->
+        <div class="pair">
 
-            <h2>Kalman Filter Performance Comparison</h2>
+            <section class="block" id="predict">
 
-            <p>
-                Compares raw measurement error with
-                Kalman-filtered estimation error.
-            </p>
+                <h2>Where will it be?</h2>
 
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Target ID</th>
-                            <th>Raw Measurement Error</th>
-                            <th>Kalman Estimation Error</th>
-                            <th>Error Reduction (%)</th>
-                            <th>Comparison Count</th>
-                        </tr>
-                    </thead>
+                <p class="block-intro">
+                    Pick a number of seconds. Each object is moved forward
+                    at its current speed and direction.
+                </p>
 
-                    <tbody id="noiseComparisonTable"></tbody>
-                </table>
-            </div>
-
-        </section>
-
-        <!-- PERFORMANCE CHART -->
-        <section class="chart-section">
-
-            <h2>Kalman Filter Error Comparison Chart</h2>
-
-            <p>
-                Visual comparison of raw measurement error
-                and Kalman estimation error for each target.
-            </p>
-
-            <div class="chart-container">
-                <canvas
-                    id="noiseComparisonChart"
-                    width="900"
-                    height="420">
-                </canvas>
-            </div>
-
-            <div class="chart-legend">
-
-                <div class="legend-item">
-                    <span class="legend-color raw-error"></span>
-                    Raw Measurement Error
+                <div class="predict-controls">
+                    <label for="predictionTime">Seconds ahead</label>
+                    <input type="number"
+                           id="predictionTime"
+                           value="5"
+                           min="0"
+                           step="1">
+                    <button onclick="predictTargets()">Predict</button>
                 </div>
 
-                <div class="legend-item">
-                    <span class="legend-color kalman-error"></span>
-                    Kalman Estimation Error
+                <div id="predictionResults">
+                    Predicted positions will appear here.
                 </div>
 
-            </div>
+            </section>
 
-        </section>
+            <section class="block" id="alerts">
 
-        <!-- TRACKING ACCURACY -->
-        <section class="accuracy-section">
+                <h2>Things to check</h2>
 
-            <h2>Tracking Accuracy Analysis</h2>
+                <div id="alertSummary">
+                    <p>Monitoring is on.</p>
+                </div>
 
-            <p>
-                Displays the latest and average prediction errors
-                calculated by the C tracking engine.
+                <div id="alertList"></div>
+
+            </section>
+
+        </div>
+
+        <!-- TECHNICAL DETAILS -->
+        <section class="block" id="details">
+
+            <h2>Technical details</h2>
+
+            <p class="block-intro">
+                Open a section to see the full tables. Positions are in
+                metres, relative to the car.
             </p>
 
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Target ID</th>
-                            <th>Latest Prediction Error</th>
-                            <th>Average Prediction Error</th>
-                            <th>Prediction Count</th>
-                        </tr>
-                    </thead>
+            <details>
+                <summary>Reference objects, per radar sensor</summary>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Sensor</th>
+                                <th>Reference</th>
+                                <th>Labelled detections</th>
+                                <th>In tracks</th>
+                                <th>Tracks used</th>
+                                <th>Main track share</th>
+                                <th>ID switches</th>
+                            </tr>
+                        </thead>
+                        <tbody id="validationTable"></tbody>
+                    </table>
+                </div>
+            </details>
 
-                    <tbody id="accuracyTable"></tbody>
-                </table>
-            </div>
+            <details>
+                <summary>Tracked objects right now</summary>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Measured X</th>
+                                <th>Measured Y</th>
+                                <th>Smoothed X</th>
+                                <th>Smoothed Y</th>
+                                <th>Speed</th>
+                                <th>Distance</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="targetTable"></tbody>
+                    </table>
+                </div>
+            </details>
 
-        </section>
+            <details>
+                <summary>Kalman filter estimates</summary>
+                <p class="detail-note">
+                    The filter's estimate of where each object is and how fast it moves.
+                </p>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Velocity X</th>
+                                <th>Velocity Y</th>
+                                <th>Position X</th>
+                                <th>Position Y</th>
+                            </tr>
+                        </thead>
+                        <tbody id="kalmanTable"></tbody>
+                    </table>
+                </div>
+            </details>
 
-        <!-- TARGET MONITORING ALERTS -->
-        <section class="alert-section">
+            <details>
+                <summary>Raw reading error vs smoothed error</summary>
+                <p class="detail-note">
+                    Shows how far off the raw radar readings are compared with the
+                    smoothed estimate. Lower is better.
+                </p>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Raw error</th>
+                                <th>Smoothed error</th>
+                                <th>Improvement (%)</th>
+                                <th>Comparisons</th>
+                            </tr>
+                        </thead>
+                        <tbody id="noiseComparisonTable"></tbody>
+                    </table>
+                </div>
 
-            <h2>Target Monitoring Alerts</h2>
+                <div class="chart-container">
+                    <canvas id="noiseComparisonChart"
+                            width="900"
+                            height="420"
+                            role="img"
+                            aria-label="Bar chart comparing raw and smoothed position error per object">
+                    </canvas>
+                </div>
 
-            <div id="alertSummary">
-                <p>System monitoring is active.</p>
-            </div>
+                <ul class="chart-legend">
+                    <li><span class="swatch raw-error"></span>Raw radar error</li>
+                    <li><span class="swatch kalman-error"></span>Smoothed (Kalman) error</li>
+                </ul>
+            </details>
 
-            <div id="alertList"></div>
-
-        </section>
-
-        <!-- FUTURE POSITION PREDICTION -->
-        <section class="prediction-section">
-
-            <h2>Future Target Position Prediction</h2>
-
-            <div class="prediction-controls">
-
-                <label for="predictionTime">
-                    Prediction Time (seconds):
-                </label>
-
-                <input
-                    type="number"
-                    id="predictionTime"
-                    value="5"
-                    min="0"
-                    step="1">
-
-                <button onclick="predictTargets()">
-                    Predict Position
-                </button>
-
-            </div>
-
-            <div id="predictionResults">
-                Predicted positions will appear here.
-            </div>
-
-        </section>
-
-        <!-- RADAR LEGEND -->
-        <section class="legend-section">
-
-            <h2>Radar Legend</h2>
-
-            <div class="legend-item">
-                <span class="legend-dot measured"></span>
-                Measured Target Position
-            </div>
-
-            <div class="legend-item">
-                <span class="legend-dot filtered"></span>
-                Kalman-Filtered Position
-            </div>
-
-            <div class="legend-item">
-                <span class="legend-dot predicted"></span>
-                Predicted Future Position
-            </div>
+            <details>
+                <summary>Prediction accuracy</summary>
+                <p class="detail-note">
+                    How far the program's one-step-ahead guess was from what happened next.
+                </p>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Latest error</th>
+                                <th>Average error</th>
+                                <th>Predictions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="accuracyTable"></tbody>
+                    </table>
+                </div>
+            </details>
 
         </section>
 
@@ -321,10 +335,8 @@
 
     <footer class="footer">
         <p>
-            Multi-Target Radar Tracking System |
-            C Backend | Kalman Filter |
-            Measurement Noise Simulation |
-            HTML | CSS | JavaScript
+            Written in C with a Kalman filter, Hungarian matching and SQLite.
+            This page shows a saved snapshot of a run, not a live feed.
         </p>
     </footer>
 

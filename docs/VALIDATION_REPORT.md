@@ -82,3 +82,23 @@ Better results most likely need structural changes (see the README's future work
 The dashboard shows the real-data results in a new section, "RadarScenes Validation Results", loaded from `dashboard/validation_results.json`.
 The existing radar view, tables and Kalman panels display the targets exported to `targets.json` by option 9.
 The Kalman raw-versus-filtered noise comparison only has data after menu option 8 (measurement-noise simulation), because the real dataset has no simulated noise.
+
+## Round 2: tracking quality improvements
+
+Changes: continuous white-noise-acceleration process noise; Mahalanobis gating; Hungarian
+assignment; 3-hit track confirmation with fast expiry of tentative tracks; tracks shared
+across the four sensors; pipeline split into `pipeline.c`; command-line options; unit tests.
+
+| Metric (fused) | Before | After |
+| --- | --- | --- |
+| IDF1 | 22.3% | 89.3% |
+| IDR / IDP | - | 83.3% / 96.2% |
+| Tracks for the main object (5,541 detections) | 29 | 3 |
+| Tracks created / confirmed | 1,410 / n.a. | 835 / 258 |
+
+Consistency check: scoring t<34 s and t>=34 s separately gives IDF1 87.8% and 90.5%.
+
+Honest caveats: parameters were tuned on this one sequence; sensitivity sweeps show a narrow
+plateau, so the headline number is likely optimistic for new data. Doppler-based track
+initialisation and allowing single-point clusters gave no benefit and are disabled.
+Not done: dashboard replay of the real sequence and identity timeline.
